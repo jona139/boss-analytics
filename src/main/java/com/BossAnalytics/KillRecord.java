@@ -40,9 +40,9 @@ public class KillRecord
     // Kill context
     private int killCount;
     private int personalBest;
-    private boolean isPersonalBest;
+    private boolean PersonalBest;
     private int world;
-    private boolean isTask;
+    private boolean Task;
 
     // Group content
     private int teamSize;

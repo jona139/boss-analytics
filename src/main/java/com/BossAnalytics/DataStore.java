@@ -143,9 +143,9 @@ public class DataStore
             ps.setString(13, GSON.toJson(kill.getInventoryItemIds()));
             ps.setInt(14, kill.getKillCount());
             ps.setInt(15, kill.getPersonalBest());
-            ps.setInt(16, kill.isPersonalBest() ? 1 : 0);
+            ps.setInt(16, kill.personalBest() ? 1 : 0);
             ps.setInt(17, kill.getWorld());
-            ps.setInt(18, kill.isTask() ? 1 : 0);
+            ps.setInt(18, kill.task() ? 1 : 0);
             ps.setInt(19, kill.getTeamSize());
             ps.setString(20, GSON.toJson(kill.getTeamMembers()));
             ps.setString(21, GSON.toJson(kill.getMetadata()));
@@ -293,9 +293,9 @@ public class DataStore
             .inventoryItemIds(GSON.fromJson(rs.getString("inventory_item_ids"), MAP_INT_INT))
             .killCount(rs.getInt("kill_count"))
             .personalBest(rs.getInt("personal_best"))
-            .isPersonalBest(rs.getInt("is_personal_best") == 1)
+            .personalBest(rs.getInt("is_personal_best") == 1)
             .world(rs.getInt("world"))
-            .isTask(rs.getInt("is_task") == 1)
+            .task(rs.getInt("is_task") == 1)
             .teamSize(rs.getInt("team_size"))
             .teamMembers(GSON.fromJson(rs.getString("team_members"), LIST_STRING))
             .metadata(GSON.fromJson(rs.getString("metadata"), MAP_STRING_STRING))

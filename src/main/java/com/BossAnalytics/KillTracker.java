@@ -212,9 +212,9 @@ public class KillTracker
                 .equippedItemNames(playerState.getEquippedItemNames())
                 .inventoryItemIds(config.snapshotInventory() ? playerState.getInventoryItemIds() : null)
                 .killCount(killCount)
-                .isPersonalBest(isPb)
+                .personalBest(isPb)
                 .world(playerState.getWorld())
-                .isTask(false) // TODO: detect slayer task
+                .task(false) // TODO: detect slayer task
                 .teamSize(1)
                 .metadata(new HashMap<>())
                 .build();
