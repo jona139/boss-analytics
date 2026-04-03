@@ -212,6 +212,7 @@ public class KillTracker
                 .equippedItemNames(playerState.getEquippedItemNames())
                 .inventoryItemIds(config.snapshotInventory() ? playerState.getInventoryItemIds() : null)
                 .killCount(killCount)
+                .personalBestTime(0)
                 .personalBest(isPb)
                 .world(playerState.getWorld())
                 .task(false) // TODO: detect slayer task

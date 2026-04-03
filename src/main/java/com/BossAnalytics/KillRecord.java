@@ -39,10 +39,10 @@ public class KillRecord
 
     // Kill context
     private int killCount;
-    private int personalBest;
-    private boolean PersonalBest;
+    private int personalBestTime;
+    private boolean personalBest;
     private int world;
-    private boolean Task;
+    private boolean task;
 
     // Group content
     private int teamSize;
