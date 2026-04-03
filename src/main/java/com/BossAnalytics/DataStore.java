@@ -143,7 +143,7 @@ public class DataStore
             ps.setString(13, GSON.toJson(kill.getInventoryItemIds()));
             ps.setInt(14, kill.getKillCount());
             ps.setInt(15, kill.getPersonalBestTime());
-            ps.setInt(16, kill.getPersonalBest() ? 1 : 0);
+            ps.setInt(16, kill.isPersonalBest() ? 1 : 0);
             ps.setInt(17, kill.getWorld());
             ps.setInt(18, kill.getTask() ? 1 : 0);
             ps.setInt(19, kill.getTeamSize());
