@@ -28,7 +28,6 @@ public class KillTracker
 
     // Active fight tracking (for tick-based fallback timing)
     private final Map<String, Integer> fightStartTicks = new HashMap<>();
-    private final Map<String, Integer> lastInteractTick = new HashMap<>();
 
     // Pending kill context
     @Getter
@@ -82,29 +81,30 @@ public class KillTracker
             lastKilledBoss = bossDef.get().getName();
             lastKilledBossNpcId = npcId;
             lastKillTick = client.getTickCount();
-            log.debug("Boss death detected: {} (npcId={})", lastKilledBoss, npcId);
+            log.info("Boss death detected: {} (npcId={})", lastKilledBoss, npcId);
         }
     }
 
     @Subscribe
-    public void onInteractingChanged(InteractingChanged event)
+    public void onNpcSpawned(NpcSpawned event)
     {
-        if (event.getSource() != client.getLocalPlayer()) return;
-
-        Actor target = event.getTarget();
-        if (!(target instanceof NPC)) return;
-
-        int npcId = ((NPC) target).getId();
+        NPC npc = event.getNpc();
+        int npcId = npc.getId();
         Optional<BossRegistry.BossDefinition> bossDef = bossRegistry.getByNpcId(npcId);
         if (bossDef.isPresent())
         {
             String bossName = bossDef.get().getName();
-            if (!fightStartTicks.containsKey(bossName))
+            int ratio = npc.getHealthRatio();
+            int scale = npc.getHealthScale();
+            // ratio == -1 means unknown (just spawned, not yet in combat) which is full HP
+            // ratio == scale means full HP
+            boolean fullHp = ratio == -1 || ratio == scale;
+            if (fullHp && !fightStartTicks.containsKey(bossName))
             {
                 fightStartTicks.put(bossName, client.getTickCount());
-                log.debug("Fight started: {} at tick {}", bossName, client.getTickCount());
+                log.info("Fight timer started (boss spawned at full HP): {} at tick {} (npcId={})",
+                    bossName, client.getTickCount(), npcId);
             }
-            lastInteractTick.put(bossName, client.getTickCount());
         }
     }
 
@@ -124,33 +124,59 @@ public class KillTracker
         double durationSeconds = parseDuration(msg);
 
         int killCount = -1;
+        String kcBossName = null;
         Matcher kcMatcher = BossRegistry.KC_PATTERN.matcher(msg);
         if (kcMatcher.find())
         {
+            kcBossName = kcMatcher.group(1);
             killCount = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
         }
 
         boolean isPb = BossRegistry.PERSONAL_BEST.matcher(msg).find();
 
-        // If we have a duration and a recently killed boss, record the kill
-        if (durationSeconds > 0 && lastKilledBoss != null
-            && client.getTickCount() - lastKillTick < 10)
+        // Resolve the boss: prefer NPC death context, fall back to KC message boss name
+        String resolvedBoss = lastKilledBoss;
+        int resolvedNpcId = lastKilledBossNpcId;
+        if (resolvedBoss == null && kcBossName != null)
         {
-            recordKill(lastKilledBoss, lastKilledBossNpcId, durationSeconds, true,
+            Optional<BossRegistry.BossDefinition> def = bossRegistry.getByName(kcBossName);
+            if (def.isPresent())
+            {
+                resolvedBoss = def.get().getName();
+                resolvedNpcId = def.get().getNpcIds().length > 0 ? def.get().getNpcIds()[0] : -1;
+                log.info("Boss resolved from KC message: {}", resolvedBoss);
+            }
+        }
+
+        if (durationSeconds > 0 || killCount > 0)
+        {
+            int ticksSinceDeath = lastKillTick >= 0 ? client.getTickCount() - lastKillTick : -1;
+            log.info("Kill chat detected: duration={}s kc={} pb={} boss={} ticksSinceDeath={}",
+                durationSeconds, killCount, isPb, resolvedBoss, ticksSinceDeath);
+        }
+
+        if (resolvedBoss == null)
+        {
+            return;
+        }
+
+        // If we have a duration, record with chat timing
+        if (durationSeconds > 0)
+        {
+            recordKill(resolvedBoss, resolvedNpcId, durationSeconds, true,
                 killCount, isPb);
-            clearFightState(lastKilledBoss);
+            clearFightState(resolvedBoss);
             return;
         }
 
         // KC message without duration => tick-based timing fallback
-        if (killCount > 0 && lastKilledBoss != null
-            && client.getTickCount() - lastKillTick < 10)
+        if (killCount > 0)
         {
-            int tickDuration = calculateTickDuration(lastKilledBoss);
-            double tickBasedSeconds = tickDuration * 0.6;
-            recordKill(lastKilledBoss, lastKilledBossNpcId, tickBasedSeconds, false,
+            int tickDuration = calculateTickDuration(resolvedBoss);
+            double tickBasedSeconds = tickDuration > 0 ? tickDuration * 0.6 : -1;
+            recordKill(resolvedBoss, resolvedNpcId, tickBasedSeconds, false,
                 killCount, false);
-            clearFightState(lastKilledBoss);
+            clearFightState(resolvedBoss);
         }
     }
 
@@ -178,13 +204,15 @@ public class KillTracker
     private int calculateTickDuration(String bossName)
     {
         Integer startTick = fightStartTicks.get(bossName);
-        return startTick != null ? client.getTickCount() - startTick : -1;
+        int currentTick = client.getTickCount();
+        log.info("calculateTickDuration: boss={} startTick={} currentTick={} fightMap={}",
+            bossName, startTick, currentTick, fightStartTicks);
+        return startTick != null ? currentTick - startTick : -1;
     }
 
     private void clearFightState(String bossName)
     {
         fightStartTicks.remove(bossName);
-        lastInteractTick.remove(bossName);
         lastKilledBoss = null;
         lastKilledBossNpcId = -1;
     }
@@ -243,10 +271,11 @@ public class KillTracker
     public void cleanStaleStates()
     {
         int currentTick = client.getTickCount();
+        // Clean up fights older than 30 minutes (3000 ticks) — should never hit this
         fightStartTicks.entrySet().removeIf(entry ->
-            currentTick - lastInteractTick.getOrDefault(entry.getKey(), 0) > 50);
+            currentTick - entry.getValue() > 3000);
 
-        if (lastKilledBoss != null && currentTick - lastKillTick > 20)
+        if (lastKilledBoss != null && currentTick - lastKillTick > 100)
         {
             clearFightState(lastKilledBoss);
         }

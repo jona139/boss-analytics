@@ -3,7 +3,6 @@ plugins {
 }
 
 repositories {
-	mavenLocal()
 	maven {
 		url = 'https://repo.runelite.net'
 		content {
@@ -11,6 +10,7 @@ repositories {
 		}
 	}
 	mavenCentral()
+	mavenLocal()
 }
 
 def runeLiteVersion = 'latest.release'

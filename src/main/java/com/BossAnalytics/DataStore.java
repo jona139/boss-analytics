@@ -126,7 +126,7 @@ public class DataStore
             + "kill_count, personal_best, is_personal_best, world, is_task, team_size, "
             + "team_members, metadata) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-        try (PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS))
+        try (PreparedStatement ps = connection.prepareStatement(sql))
         {
             ps.setString(1, kill.getBossName());
             ps.setInt(2, kill.getBossNpcId());
@@ -145,18 +145,21 @@ public class DataStore
             ps.setInt(15, kill.getPersonalBestTime());
             ps.setInt(16, kill.isPersonalBest() ? 1 : 0);
             ps.setInt(17, kill.getWorld());
-            ps.setInt(18, kill.getTask() ? 1 : 0);
+            ps.setInt(18, kill.isTask() ? 1 : 0);
             ps.setInt(19, kill.getTeamSize());
             ps.setString(20, GSON.toJson(kill.getTeamMembers()));
             ps.setString(21, GSON.toJson(kill.getMetadata()));
             ps.executeUpdate();
 
-            ResultSet keys = ps.getGeneratedKeys();
-            if (keys.next())
+            try (Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()"))
             {
-                long id = keys.getLong(1);
-                log.debug("Inserted kill record {} for {} ({}s)", id, kill.getBossName(), kill.getDurationSeconds());
-                return id;
+                if (rs.next())
+                {
+                    long id = rs.getLong(1);
+                    log.debug("Inserted kill record {} for {} ({}s)", id, kill.getBossName(), kill.getDurationSeconds());
+                    return id;
+                }
             }
             return -1;
         }

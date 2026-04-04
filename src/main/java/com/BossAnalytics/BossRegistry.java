@@ -162,7 +162,7 @@ public class BossRegistry
             .npcIds(new int[]{2265}).hasKillTimeChat(true).multiPhase(false).build());
 
         register(BossDefinition.builder().name("Scurrius").category("solo")
-            .npcIds(new int[]{7222, 7223}).hasKillTimeChat(true).multiPhase(false).build());
+            .npcIds(new int[]{7221, 7222, 7223}).hasKillTimeChat(true).multiPhase(false).build());
 
         register(BossDefinition.builder().name("Hespori").category("solo")
             .npcIds(new int[]{8583}).hasKillTimeChat(true).multiPhase(false).build());
