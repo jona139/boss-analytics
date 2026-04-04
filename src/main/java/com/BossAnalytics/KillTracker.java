@@ -6,6 +6,11 @@ import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.client.eventbus.Subscribe;
 
+import lombok.Builder;
+import lombok.Data;
+import net.runelite.api.Hitsplat;
+import net.runelite.api.Skill;
+
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -28,6 +33,27 @@ public class KillTracker
 
     // Active fight tracking (for tick-based fallback timing)
     private final Map<String, Integer> fightStartTicks = new HashMap<>();
+
+    // Start-of-fight snapshots
+    private final Map<String, FightSnapshot> fightSnapshots = new HashMap<>();
+
+    // Per-fight stat tracking
+    private final Map<String, int[]> fightHpTracking = new HashMap<>();   // [hpLost, hpRecovered, lastKnownHp]
+    private final Map<String, int[]> fightPrayerTracking = new HashMap<>(); // [prayerLost, prayerRestored, lastKnownPrayer]
+    private final Map<String, Integer> fightDeaths = new HashMap<>();
+    private final Map<String, Integer> fightDamageDealt = new HashMap<>();
+
+    // Track which boss the player is currently fighting (for stat change attribution)
+    private String activeFightBoss = null;
+
+    @Data @Builder
+    public static class FightSnapshot {
+        private Map<Integer, Integer> equippedItemIds;
+        private Map<Integer, String> equippedItemNames;
+        private Map<Integer, Integer> inventoryItemIds;
+        private long gearValue;
+        private long inventoryValue;
+    }
 
     // Pending kill context
     @Getter
@@ -104,6 +130,25 @@ public class KillTracker
                 fightStartTicks.put(bossName, client.getTickCount());
                 log.info("Fight timer started (boss spawned at full HP): {} at tick {} (npcId={})",
                     bossName, client.getTickCount(), npcId);
+
+                // Capture start-of-fight state
+                FightSnapshot snapshot = FightSnapshot.builder()
+                    .equippedItemIds(playerState.getEquippedItemIds())
+                    .equippedItemNames(playerState.getEquippedItemNames())
+                    .inventoryItemIds(playerState.getInventoryItemIds())
+                    .gearValue(playerState.calculateEquipmentValue())
+                    .inventoryValue(playerState.calculateInventoryValue())
+                    .build();
+                fightSnapshots.put(bossName, snapshot);
+
+                // Initialize stat tracking
+                int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+                int currentPrayer = client.getBoostedSkillLevel(Skill.PRAYER);
+                fightHpTracking.put(bossName, new int[]{0, 0, currentHp});
+                fightPrayerTracking.put(bossName, new int[]{0, 0, currentPrayer});
+                fightDeaths.put(bossName, 0);
+                fightDamageDealt.put(bossName, 0);
+                activeFightBoss = bossName;
             }
         }
     }
@@ -180,6 +225,63 @@ public class KillTracker
         }
     }
 
+    @Subscribe
+    public void onStatChanged(StatChanged event)
+    {
+        if (activeFightBoss == null) return;
+
+        if (event.getSkill() == Skill.HITPOINTS)
+        {
+            int[] tracking = fightHpTracking.get(activeFightBoss);
+            if (tracking != null)
+            {
+                int delta = event.getBoostedLevel() - tracking[2];
+                if (delta < 0) tracking[0] += Math.abs(delta); // hpLost
+                if (delta > 0) tracking[1] += delta;            // hpRecovered
+                tracking[2] = event.getBoostedLevel();
+            }
+        }
+        else if (event.getSkill() == Skill.PRAYER)
+        {
+            int[] tracking = fightPrayerTracking.get(activeFightBoss);
+            if (tracking != null)
+            {
+                int delta = event.getBoostedLevel() - tracking[2];
+                if (delta < 0) tracking[0] += Math.abs(delta); // prayerLost
+                if (delta > 0) tracking[1] += delta;            // prayerRestored
+                tracking[2] = event.getBoostedLevel();
+            }
+        }
+    }
+
+    @Subscribe
+    public void onActorDeath(ActorDeath event)
+    {
+        if (event.getActor() == client.getLocalPlayer() && activeFightBoss != null)
+        {
+            fightDeaths.merge(activeFightBoss, 1, Integer::sum);
+            log.info("Player death during fight: {}", activeFightBoss);
+        }
+    }
+
+    @Subscribe
+    public void onHitsplatApplied(HitsplatApplied event)
+    {
+        if (activeFightBoss == null) return;
+        if (!(event.getActor() instanceof NPC)) return;
+
+        NPC npc = (NPC) event.getActor();
+        Optional<BossRegistry.BossDefinition> bossDef = bossRegistry.getByNpcId(npc.getId());
+        if (bossDef.isPresent() && bossDef.get().getName().equals(activeFightBoss))
+        {
+            Hitsplat hitsplat = event.getHitsplat();
+            if (hitsplat.isMine())
+            {
+                fightDamageDealt.merge(activeFightBoss, hitsplat.getAmount(), Integer::sum);
+            }
+        }
+    }
+
     private double parseDuration(String msg)
     {
         Matcher fightMatcher = BossRegistry.FIGHT_DURATION.matcher(msg);
@@ -213,8 +315,17 @@ public class KillTracker
     private void clearFightState(String bossName)
     {
         fightStartTicks.remove(bossName);
+        fightSnapshots.remove(bossName);
+        fightHpTracking.remove(bossName);
+        fightPrayerTracking.remove(bossName);
+        fightDeaths.remove(bossName);
+        fightDamageDealt.remove(bossName);
         lastKilledBoss = null;
         lastKilledBossNpcId = -1;
+        if (bossName.equals(activeFightBoss))
+        {
+            activeFightBoss = null;
+        }
     }
 
     private void recordKill(String bossName, int npcId, double durationSeconds,
@@ -224,6 +335,10 @@ public class KillTracker
         {
             int tickDuration = calculateTickDuration(bossName);
             if (tickDuration < 0) tickDuration = (int) Math.round(durationSeconds / 0.6);
+
+            FightSnapshot snapshot = fightSnapshots.get(bossName);
+            int[] hpTracking = fightHpTracking.get(bossName);
+            int[] prayerTracking = fightPrayerTracking.get(bossName);
 
             KillRecord record = KillRecord.builder()
                 .bossName(bossName)
@@ -246,6 +361,33 @@ public class KillTracker
                 .task(false) // TODO: detect slayer task
                 .teamSize(1)
                 .metadata(new HashMap<>())
+                // Start-of-fight snapshot
+                .startEquippedItemIds(snapshot != null ? snapshot.getEquippedItemIds() : null)
+                .startEquippedItemNames(snapshot != null ? snapshot.getEquippedItemNames() : null)
+                .startInventoryItemIds(snapshot != null ? snapshot.getInventoryItemIds() : null)
+                // Resource tracking
+                .hpLost(hpTracking != null ? hpTracking[0] : 0)
+                .hpRecovered(hpTracking != null ? hpTracking[1] : 0)
+                .prayerLost(prayerTracking != null ? prayerTracking[0] : 0)
+                .prayerRestored(prayerTracking != null ? prayerTracking[1] : 0)
+                // GP values
+                .startGearValue(snapshot != null ? snapshot.getGearValue() : 0)
+                .startInventoryValue(snapshot != null ? snapshot.getInventoryValue() : 0)
+                .endGearValue(playerState.calculateEquipmentValue())
+                .endInventoryValue(playerState.calculateInventoryValue())
+                // Prayer unlocks
+                .hasRigour(playerState.hasRigour())
+                .hasAugury(playerState.hasAugury())
+                .hasDeadeye(playerState.hasDeadeye())
+                .hasMysticVigour(playerState.hasMysticVigour())
+                // Account info
+                .combatAchievementPoints(playerState.getCombatAchievementPoints())
+                .totalLevel(playerState.getTotalLevel())
+                .playtimeMinutes(playerState.getPlaytimeMinutes())
+                .accountType(playerState.getAccountType())
+                // Fight metrics
+                .personalDeaths(fightDeaths.getOrDefault(bossName, 0))
+                .totalDamageDealt(fightDamageDealt.getOrDefault(bossName, 0))
                 .build();
 
             long id = dataStore.insertKill(record);

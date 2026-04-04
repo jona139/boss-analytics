@@ -50,4 +50,37 @@ public class KillRecord
 
     // Boss-specific metadata (flexible key-value for raids, etc.)
     private Map<String, String> metadata;
+
+    // Start-of-fight snapshots
+    private Map<Integer, Integer> startEquippedItemIds;
+    private Map<Integer, String> startEquippedItemNames;
+    private Map<Integer, Integer> startInventoryItemIds;
+
+    // Resource tracking
+    private int hpLost;
+    private int hpRecovered;
+    private int prayerLost;
+    private int prayerRestored;
+
+    // GP values
+    private long startGearValue;
+    private long startInventoryValue;
+    private long endGearValue;
+    private long endInventoryValue;
+
+    // Prayer unlocks
+    private boolean hasRigour;
+    private boolean hasAugury;
+    private boolean hasDeadeye;
+    private boolean hasMysticVigour;
+
+    // Account info
+    private int combatAchievementPoints;
+    private int totalLevel;
+    private int playtimeMinutes;
+    private int accountType; // 0=normal, 1=ironman, 2=ultimate, 3=hardcore, 4=group, 5=group hardcore, 6=unranked group
+
+    // Fight metrics
+    private int personalDeaths;
+    private int totalDamageDealt;
 }

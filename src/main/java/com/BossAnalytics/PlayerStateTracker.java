@@ -117,4 +117,80 @@ public class PlayerStateTracker
     {
         return client.getWorld();
     }
+
+    public long calculateEquipmentValue()
+    {
+        ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
+        if (equipment == null) return 0;
+        long total = 0;
+        for (Item item : equipment.getItems())
+        {
+            if (item.getId() != -1)
+            {
+                total += (long) itemManager.getItemPrice(item.getId()) * Math.max(1, item.getQuantity());
+            }
+        }
+        return total;
+    }
+
+    public long calculateInventoryValue()
+    {
+        ItemContainer inventory = client.getItemContainer(InventoryID.INVENTORY);
+        if (inventory == null) return 0;
+        long total = 0;
+        for (Item item : inventory.getItems())
+        {
+            if (item.getId() != -1)
+            {
+                total += (long) itemManager.getItemPrice(item.getId()) * Math.max(1, item.getQuantity());
+            }
+        }
+        return total;
+    }
+
+    public boolean hasRigour()
+    {
+        return client.getVarbitValue(5451) == 1;
+    }
+
+    public boolean hasAugury()
+    {
+        return client.getVarbitValue(5452) == 1;
+    }
+
+    public boolean hasDeadeye()
+    {
+        return client.getVarbitValue(14862) == 1; // Verify varbit
+    }
+
+    public boolean hasMysticVigour()
+    {
+        return client.getVarbitValue(14863) == 1; // Verify varbit
+    }
+
+    public int getCombatAchievementPoints()
+    {
+        return client.getVarbitValue(12063);
+    }
+
+    public int getTotalLevel()
+    {
+        int total = 0;
+        for (Skill skill : Skill.values())
+        {
+            if (skill == Skill.OVERALL) continue;
+            total += client.getRealSkillLevel(skill);
+        }
+        return total;
+    }
+
+    public int getPlaytimeMinutes()
+    {
+        return (int)(client.getVarpValue(788) * 0.6 / 60);
+    }
+
+    public int getAccountType()
+    {
+        return client.getVarpValue(281);
+    }
 }

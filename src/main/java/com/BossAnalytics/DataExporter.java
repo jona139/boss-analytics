@@ -45,7 +45,12 @@ public class DataExporter
                 + "boosted_magic,boosted_prayer,boosted_hitpoints,"
                 + "weapon_id,weapon_name,helm_id,body_id,legs_id,boots_id,"
                 + "cape_id,ring_id,ammo_id,shield_id,"
-                + "kill_count,is_pb,team_size,is_task,world");
+                + "kill_count,is_pb,team_size,is_task,world,"
+                + "hp_lost,hp_recovered,prayer_lost,prayer_restored,"
+                + "start_gear_value,start_inventory_value,end_gear_value,end_inventory_value,"
+                + "has_rigour,has_augury,has_deadeye,has_mystic_vigour,"
+                + "combat_achievement_points,total_level,playtime_minutes,account_type,"
+                + "personal_deaths,total_damage_dealt");
 
             for (KillRecord kill : kills)
             {
@@ -85,6 +90,26 @@ public class DataExporter
                 sj.add(String.valueOf(kill.getTeamSize()));
                 sj.add(kill.isTask() ? "1" : "0");
                 sj.add(String.valueOf(kill.getWorld()));
+
+                // New fields
+                sj.add(String.valueOf(kill.getHpLost()));
+                sj.add(String.valueOf(kill.getHpRecovered()));
+                sj.add(String.valueOf(kill.getPrayerLost()));
+                sj.add(String.valueOf(kill.getPrayerRestored()));
+                sj.add(String.valueOf(kill.getStartGearValue()));
+                sj.add(String.valueOf(kill.getStartInventoryValue()));
+                sj.add(String.valueOf(kill.getEndGearValue()));
+                sj.add(String.valueOf(kill.getEndInventoryValue()));
+                sj.add(kill.isHasRigour() ? "1" : "0");
+                sj.add(kill.isHasAugury() ? "1" : "0");
+                sj.add(kill.isHasDeadeye() ? "1" : "0");
+                sj.add(kill.isHasMysticVigour() ? "1" : "0");
+                sj.add(String.valueOf(kill.getCombatAchievementPoints()));
+                sj.add(String.valueOf(kill.getTotalLevel()));
+                sj.add(String.valueOf(kill.getPlaytimeMinutes()));
+                sj.add(String.valueOf(kill.getAccountType()));
+                sj.add(String.valueOf(kill.getPersonalDeaths()));
+                sj.add(String.valueOf(kill.getTotalDamageDealt()));
 
                 pw.println(sj.toString());
             }

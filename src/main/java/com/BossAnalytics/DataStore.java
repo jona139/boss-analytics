@@ -46,6 +46,7 @@ public class DataStore
         }
 
         initSchema();
+        migrateSchema();
         log.info("Boss Analytics DB opened at {}", dbFile.getAbsolutePath());
     }
 
@@ -116,6 +117,43 @@ public class DataStore
         }
     }
 
+    private void migrateSchema() throws SQLException
+    {
+        addColumnIfMissing("kills", "start_equipped_item_ids", "TEXT");
+        addColumnIfMissing("kills", "start_equipped_item_names", "TEXT");
+        addColumnIfMissing("kills", "start_inventory_item_ids", "TEXT");
+        addColumnIfMissing("kills", "hp_lost", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "hp_recovered", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "prayer_lost", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "prayer_restored", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "start_gear_value", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "start_inventory_value", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "end_gear_value", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "end_inventory_value", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "has_rigour", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "has_augury", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "has_deadeye", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "has_mystic_vigour", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "combat_achievement_points", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "total_level", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "playtime_minutes", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "account_type", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "personal_deaths", "INTEGER DEFAULT 0");
+        addColumnIfMissing("kills", "total_damage_dealt", "INTEGER DEFAULT 0");
+    }
+
+    private void addColumnIfMissing(String table, String column, String type) throws SQLException
+    {
+        try (Statement stmt = connection.createStatement())
+        {
+            stmt.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+        }
+        catch (SQLException e)
+        {
+            if (!e.getMessage().contains("duplicate column")) throw e;
+        }
+    }
+
     // ========== KILL RECORDS ==========
 
     public long insertKill(KillRecord kill) throws SQLException
@@ -124,7 +162,14 @@ public class DataStore
             + "duration_seconds, duration_from_chat, combat_level, skill_levels, boosted_levels, "
             + "combat_achievement_tier, equipped_item_ids, equipped_item_names, inventory_item_ids, "
             + "kill_count, personal_best, is_personal_best, world, is_task, team_size, "
-            + "team_members, metadata) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            + "team_members, metadata, "
+            + "start_equipped_item_ids, start_equipped_item_names, start_inventory_item_ids, "
+            + "hp_lost, hp_recovered, prayer_lost, prayer_restored, "
+            + "start_gear_value, start_inventory_value, end_gear_value, end_inventory_value, "
+            + "has_rigour, has_augury, has_deadeye, has_mystic_vigour, "
+            + "combat_achievement_points, total_level, playtime_minutes, account_type, "
+            + "personal_deaths, total_damage_dealt"
+            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         try (PreparedStatement ps = connection.prepareStatement(sql))
         {
@@ -149,6 +194,27 @@ public class DataStore
             ps.setInt(19, kill.getTeamSize());
             ps.setString(20, GSON.toJson(kill.getTeamMembers()));
             ps.setString(21, GSON.toJson(kill.getMetadata()));
+            ps.setString(22, GSON.toJson(kill.getStartEquippedItemIds()));
+            ps.setString(23, GSON.toJson(kill.getStartEquippedItemNames()));
+            ps.setString(24, GSON.toJson(kill.getStartInventoryItemIds()));
+            ps.setInt(25, kill.getHpLost());
+            ps.setInt(26, kill.getHpRecovered());
+            ps.setInt(27, kill.getPrayerLost());
+            ps.setInt(28, kill.getPrayerRestored());
+            ps.setLong(29, kill.getStartGearValue());
+            ps.setLong(30, kill.getStartInventoryValue());
+            ps.setLong(31, kill.getEndGearValue());
+            ps.setLong(32, kill.getEndInventoryValue());
+            ps.setInt(33, kill.isHasRigour() ? 1 : 0);
+            ps.setInt(34, kill.isHasAugury() ? 1 : 0);
+            ps.setInt(35, kill.isHasDeadeye() ? 1 : 0);
+            ps.setInt(36, kill.isHasMysticVigour() ? 1 : 0);
+            ps.setInt(37, kill.getCombatAchievementPoints());
+            ps.setInt(38, kill.getTotalLevel());
+            ps.setInt(39, kill.getPlaytimeMinutes());
+            ps.setInt(40, kill.getAccountType());
+            ps.setInt(41, kill.getPersonalDeaths());
+            ps.setInt(42, kill.getTotalDamageDealt());
             ps.executeUpdate();
 
             try (Statement stmt = connection.createStatement();
@@ -302,6 +368,27 @@ public class DataStore
             .teamSize(rs.getInt("team_size"))
             .teamMembers(GSON.fromJson(rs.getString("team_members"), LIST_STRING))
             .metadata(GSON.fromJson(rs.getString("metadata"), MAP_STRING_STRING))
+            .startEquippedItemIds(GSON.fromJson(rs.getString("start_equipped_item_ids"), MAP_INT_INT))
+            .startEquippedItemNames(GSON.fromJson(rs.getString("start_equipped_item_names"), MAP_INT_STRING))
+            .startInventoryItemIds(GSON.fromJson(rs.getString("start_inventory_item_ids"), MAP_INT_INT))
+            .hpLost(rs.getInt("hp_lost"))
+            .hpRecovered(rs.getInt("hp_recovered"))
+            .prayerLost(rs.getInt("prayer_lost"))
+            .prayerRestored(rs.getInt("prayer_restored"))
+            .startGearValue(rs.getLong("start_gear_value"))
+            .startInventoryValue(rs.getLong("start_inventory_value"))
+            .endGearValue(rs.getLong("end_gear_value"))
+            .endInventoryValue(rs.getLong("end_inventory_value"))
+            .hasRigour(rs.getInt("has_rigour") == 1)
+            .hasAugury(rs.getInt("has_augury") == 1)
+            .hasDeadeye(rs.getInt("has_deadeye") == 1)
+            .hasMysticVigour(rs.getInt("has_mystic_vigour") == 1)
+            .combatAchievementPoints(rs.getInt("combat_achievement_points"))
+            .totalLevel(rs.getInt("total_level"))
+            .playtimeMinutes(rs.getInt("playtime_minutes"))
+            .accountType(rs.getInt("account_type"))
+            .personalDeaths(rs.getInt("personal_deaths"))
+            .totalDamageDealt(rs.getInt("total_damage_dealt"))
             .build();
     }
 
