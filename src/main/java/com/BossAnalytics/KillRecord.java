@@ -14,6 +14,17 @@ import java.util.Map;
 @Builder
 public class KillRecord
 {
+    @Data
+    @Builder
+    public static class GroupMemberSnapshot
+    {
+        private String name;
+        private int combatLevel;
+        private long gearValue;
+        private Map<Integer, Integer> equippedItemIds;
+        private Map<Integer, String> equippedItemNames;
+    }
+
     private long id;
     private String bossName;
     private int bossNpcId;
@@ -42,11 +53,23 @@ public class KillRecord
     private int personalBestTime;
     private boolean personalBest;
     private int world;
+    private String worldTypes; // comma-separated WorldType flags (e.g. "MEMBERS,SEASONAL")
+    private String gameMode;   // standard, leagues, deadman, beta, etc.
+    private boolean leaguesWorld;
     private boolean task;
+    private int wave;
+    private String waveName;
+    private int segmentDurationTicks;
+    private int totalRunTicks;
+    private boolean deathRecord;
+    private int deathWave;
+    private String activityVariant;
 
     // Group content
     private int teamSize;
+    private String groupSizeLabel; // "1".."8" or "mass"
     private List<String> teamMembers;
+    private List<GroupMemberSnapshot> otherPlayers;
 
     // Boss-specific metadata (flexible key-value for raids, etc.)
     private Map<String, String> metadata;
@@ -79,6 +102,8 @@ public class KillRecord
     private int totalLevel;
     private int playtimeMinutes;
     private int accountType; // 0=normal, 1=ironman, 2=ultimate, 3=hardcore, 4=group, 5=group hardcore, 6=unranked group
+    private int effectiveAccountType; // accountType, or 100+accountType on leagues worlds
+    private String accountTypeLabel;  // e.g. "normal", "ironman", "leagues_ironman"
 
     // Fight metrics
     private int personalDeaths;

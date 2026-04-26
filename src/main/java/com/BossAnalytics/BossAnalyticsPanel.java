@@ -203,6 +203,9 @@ public class BossAnalyticsPanel extends PluginPanel
         {
             File exportDir = getExportDir();
             dataExporter.exportKillsCsv(null, exportDir);
+            dataExporter.exportCoxRunsCsv(exportDir);
+            dataExporter.exportToaRunsCsv(exportDir);
+            dataExporter.exportWaveRunsCsv(exportDir);
             JOptionPane.showMessageDialog(this,
                 "Exported to: " + exportDir.getAbsolutePath(),
                 "Export Complete", JOptionPane.INFORMATION_MESSAGE);

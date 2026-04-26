@@ -57,7 +57,9 @@ public class BossAnalyticsPlugin extends Plugin
     private PlayerStateTracker playerStateTracker;
     private KillTracker killTracker;
     private CoxHandler coxHandler;
+    private ToaHandler toaHandler;
     private NexHandler nexHandler;
+    private LeaguesContentHandler leaguesContentHandler;
     private DataExporter dataExporter;
     private RecentKillOverlay recentKillOverlay;
     private BossAnalyticsPanel pluginPanel;
@@ -76,18 +78,24 @@ public class BossAnalyticsPlugin extends Plugin
         playerStateTracker = new PlayerStateTracker(client, itemManager);
         killTracker = new KillTracker(client, dataStore, playerStateTracker, bossRegistry, config);
         coxHandler = new CoxHandler(client, dataStore);
+        toaHandler = new ToaHandler(client, dataStore);
         nexHandler = new NexHandler(client);
+        leaguesContentHandler = new LeaguesContentHandler(client, dataStore, playerStateTracker);
         dataExporter = new DataExporter(dataStore);
         recentKillOverlay = new RecentKillOverlay(config);
 
         // Register event subscribers
         eventBus.register(killTracker);
         eventBus.register(coxHandler);
+        eventBus.register(toaHandler);
         eventBus.register(nexHandler);
+        eventBus.register(leaguesContentHandler);
 
         // Wire up kill listeners
         killTracker.addListener(coxHandler);
+        killTracker.addListener(toaHandler);
         killTracker.addListener(nexHandler);
+        killTracker.addListener(leaguesContentHandler);
         killTracker.addListener(record -> {
             recentKillOverlay.setRecentKill(record);
             if (pluginPanel != null)
@@ -141,7 +149,9 @@ public class BossAnalyticsPlugin extends Plugin
 
         eventBus.unregister(killTracker);
         eventBus.unregister(coxHandler);
+        eventBus.unregister(toaHandler);
         eventBus.unregister(nexHandler);
+        eventBus.unregister(leaguesContentHandler);
 
         if (navButton != null)
         {

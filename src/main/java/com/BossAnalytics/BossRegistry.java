@@ -16,6 +16,7 @@ public class BossRegistry
 {
     private final Map<Integer, BossDefinition> byNpcId = new HashMap<>();
     private final Map<String, BossDefinition> byName = new HashMap<>();
+    private final Map<String, BossDefinition> byNormalizedName = new HashMap<>();
 
     public BossRegistry()
     {
@@ -29,7 +30,18 @@ public class BossRegistry
 
     public Optional<BossDefinition> getByName(String name)
     {
-        return Optional.ofNullable(byName.get(name.toLowerCase()));
+        if (name == null)
+        {
+            return Optional.empty();
+        }
+
+        BossDefinition exact = byName.get(name.toLowerCase());
+        if (exact != null)
+        {
+            return Optional.of(exact);
+        }
+
+        return Optional.ofNullable(byNormalizedName.get(normalizeName(name)));
     }
 
     public Collection<BossDefinition> getAll()
@@ -40,10 +52,37 @@ public class BossRegistry
     private void register(BossDefinition def)
     {
         byName.put(def.getName().toLowerCase(), def);
+        byNormalizedName.put(normalizeName(def.getName()), def);
         for (int npcId : def.getNpcIds())
         {
             byNpcId.put(npcId, def);
         }
+    }
+
+    private String normalizeName(String name)
+    {
+        return name.toLowerCase().replaceAll("[^a-z0-9]+", "");
+    }
+
+    private void registerIfMissing(String name, String category)
+    {
+        registerIfMissing(name, category, new int[]{});
+    }
+
+    private void registerIfMissing(String name, String category, int[] npcIds)
+    {
+        if (getByName(name).isPresent())
+        {
+            return;
+        }
+
+        register(BossDefinition.builder()
+            .name(name)
+            .category(category)
+            .npcIds(npcIds)
+            .hasKillTimeChat(true)
+            .multiPhase(false)
+            .build());
     }
 
     @Data
@@ -67,6 +106,8 @@ public class BossRegistry
         "Your (.+) kill count is: ([\\d,]+)");
     public static final Pattern RAID_KC = Pattern.compile(
         "Your completed (.+) count is: ([\\d,]+)");
+    public static final Pattern YAMA_CONTRACT = Pattern.compile(
+        "You have completed ([\\d,]+) contracts with a total of ([\\d,]+) points\\.?");
     public static final Pattern PERSONAL_BEST = Pattern.compile(
         "Fight duration: (\\d+):(\\d+)\\.?(\\d+)? \\(new personal best\\)");
 
@@ -128,10 +169,10 @@ public class BossRegistry
 
         // Slayer bosses
         register(BossDefinition.builder().name("Kraken").category("solo")
-            .npcIds(new int[]{494}).hasKillTimeChat(true).multiPhase(false).build());
+            .npcIds(new int[]{492, 494, 6640, 6656}).hasKillTimeChat(true).multiPhase(false).build());
 
         register(BossDefinition.builder().name("Thermonuclear Smoke Devil").category("solo")
-            .npcIds(new int[]{499}).hasKillTimeChat(true).multiPhase(false).build());
+            .npcIds(new int[]{499, 13659}).hasKillTimeChat(true).multiPhase(false).build());
 
         register(BossDefinition.builder().name("Abyssal Sire").category("solo")
             .npcIds(new int[]{5886, 5887, 5888, 5889, 5890, 5891, 5908}).hasKillTimeChat(true).multiPhase(true).build());
@@ -144,7 +185,7 @@ public class BossRegistry
             .npcIds(new int[]{319}).hasKillTimeChat(true).multiPhase(false).build());
 
         register(BossDefinition.builder().name("Kalphite Queen").category("solo")
-            .npcIds(new int[]{963, 965}).hasKillTimeChat(true).multiPhase(true).build());
+            .npcIds(new int[]{963, 965, 4303, 4304, 6500, 6501}).hasKillTimeChat(true).multiPhase(true).build());
 
         register(BossDefinition.builder().name("King Black Dragon").category("solo")
             .npcIds(new int[]{239}).hasKillTimeChat(true).multiPhase(false).build());
@@ -186,7 +227,8 @@ public class BossRegistry
             .handlerClass("NexHandler").build());
 
         register(BossDefinition.builder().name("The Nightmare").category("group")
-            .npcIds(new int[]{9425, 9426, 9427, 9428, 9429, 9430}).hasKillTimeChat(true).multiPhase(true).build());
+            .npcIds(new int[]{378, 9425, 9426, 9427, 9428, 9429, 9430, 9431, 9432, 9433, 9460, 9461, 9462, 9463, 9464})
+            .hasKillTimeChat(true).multiPhase(true).build());
 
         // ========== RAIDS (detected via varbits, not NPC IDs) ==========
         register(BossDefinition.builder().name("Chambers of Xeric").category("raid")
@@ -200,5 +242,83 @@ public class BossRegistry
         register(BossDefinition.builder().name("Tombs of Amascut").category("raid")
             .npcIds(new int[]{}).hasKillTimeChat(true).multiPhase(false)
             .handlerClass("ToaHandler").build());
+
+        // ========== Name Coverage (KC/duration chat fallback) ==========
+        // Add all current boss names so KC/duration messages resolve even when an NPC ID
+        // mapping is unavailable or outdated.
+        registerIfMissing("Abyssal Sire", "solo");
+        registerIfMissing("Alchemical Hydra", "solo");
+        registerIfMissing("Amoxliatl", "solo", new int[]{13685, 13686, 13687, 13689});
+        registerIfMissing("Araxxor", "solo", new int[]{13668, 13669});
+        registerIfMissing("Barrows", "solo");
+        registerIfMissing("Brutus", "solo");
+        registerIfMissing("Bryophyta", "solo", new int[]{8195});
+        registerIfMissing("Callisto", "wilderness");
+        registerIfMissing("Cerberus", "solo");
+        registerIfMissing("Chaos Elemental", "wilderness");
+        registerIfMissing("Chaos Fanatic", "wilderness", new int[]{6619});
+        registerIfMissing("Crazy Archaeologist", "wilderness", new int[]{6618});
+        registerIfMissing("Chambers of Xeric", "raid");
+        registerIfMissing("Chambers of Xeric: Challenge Mode", "raid");
+        registerIfMissing("Corporeal Beast", "group");
+        registerIfMissing("Commander Zilyana", "solo");
+        registerIfMissing("Crystalline Hunllef", "solo", new int[]{9021, 9022, 9023, 9024, 12123});
+        registerIfMissing("Corrupted Hunllef", "solo", new int[]{9035, 9036, 9037, 9038});
+        registerIfMissing("Dagannoth Prime", "solo");
+        registerIfMissing("Dagannoth Rex", "solo");
+        registerIfMissing("Dagannoth Supreme", "solo");
+        registerIfMissing("Deranged Archaeologist", "solo", new int[]{7806});
+        register(BossDefinition.builder().name("Doom of Mokhaiotl").category("solo")
+            .npcIds(new int[]{14707, 14708, 14709}).hasKillTimeChat(false).multiPhase(false).build());
+        registerIfMissing("Duke Sucellus", "solo");
+        registerIfMissing("Fortis Colosseum", "solo", new int[]{12821, 12827, 15554});
+        registerIfMissing("General Graardor", "solo");
+        registerIfMissing("Giant Mole", "solo");
+        registerIfMissing("Grotesque Guardians", "solo");
+        registerIfMissing("Hespori", "solo");
+        registerIfMissing("The Hueycoatl", "solo", new int[]{14009, 14010, 14011, 14012, 14013, 14014, 14015, 14017});
+        registerIfMissing("Kalphite Queen", "solo");
+        registerIfMissing("King Black Dragon", "solo");
+        registerIfMissing("Kraken", "solo");
+        registerIfMissing("Kree'arra", "solo");
+        registerIfMissing("K'ril Tsutsaroth", "solo");
+        registerIfMissing("The Leviathan", "solo");
+        registerIfMissing("The Mimic", "solo", new int[]{784, 7979, 8633});
+        registerIfMissing("Moons of Peril", "solo", new int[]{13011, 13012, 13013, 13485, 13486, 13487});
+        registerIfMissing("Nex", "group");
+        registerIfMissing("The Nightmare", "group");
+        registerIfMissing("Phosani's Nightmare", "solo");
+        registerIfMissing("Obor", "solo", new int[]{7416});
+        registerIfMissing("Phantom Muspah", "solo");
+        registerIfMissing("Royal Titans", "group", new int[]{4067, 6299, 6360});
+        registerIfMissing("Sarachnis", "solo");
+        registerIfMissing("Scorpia", "wilderness", new int[]{6615});
+        registerIfMissing("Scurrius", "solo");
+        registerIfMissing("Shellbane Gryphon", "solo", new int[]{14860, 15010});
+        registerIfMissing("Skotizo", "solo", new int[]{7286});
+        registerIfMissing("Theatre of Blood: Entry Mode", "raid");
+        registerIfMissing("Theatre of Blood", "raid");
+        registerIfMissing("Theatre of Blood: Hard Mode", "raid");
+        registerIfMissing("Thermonuclear Smoke Devil", "solo");
+        registerIfMissing("Tombs of Amascut: Entry Mode", "raid");
+        registerIfMissing("Tombs of Amascut", "raid");
+        registerIfMissing("Tombs of Amascut: Expert Mode", "raid");
+        registerIfMissing("TzHaar-Ket-Rak's Challenges (1 through 6)", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzHaar-Ket-Rak's Challenge 1", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzHaar-Ket-Rak's Challenge 2", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzHaar-Ket-Rak's Challenge 3", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzHaar-Ket-Rak's Challenge 4", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzHaar-Ket-Rak's Challenge 5", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzHaar-Ket-Rak's Challenge 6", "solo", new int[]{10621, 10622});
+        registerIfMissing("TzKal-Zuk", "solo", new int[]{7706});
+        registerIfMissing("TzTok-Jad", "solo", new int[]{3127, 6506, 13661, 15574});
+        registerIfMissing("Vardorvis", "solo");
+        registerIfMissing("Venenatis", "wilderness");
+        registerIfMissing("Vet'ion", "wilderness");
+        registerIfMissing("Vorkath", "solo");
+        registerIfMissing("The Whisperer", "solo");
+        registerIfMissing("Yama", "group", new int[]{124, 14176, 15555});
+        registerIfMissing("Zalcano", "group", new int[]{9049, 9050, 12124});
+        registerIfMissing("Zulrah", "solo");
     }
 }

@@ -19,6 +19,10 @@ public class CoxHandler implements KillTracker.KillListener
     private static final int VARBIT_IN_RAID = 5432;
     private static final int VARBIT_TOTAL_POINTS = 5422;
     private static final int VARBIT_PERSONAL_POINTS = 5431;
+    private static final List<String> ROOM_FLAG_NAMES = Arrays.asList(
+        "Tekton", "Muttadile", "Vanguards", "Vasa Nistirio", "Vespula",
+        "Guardians", "Mystics", "Shamans", "Great Olm", "Thieving", "Ice Demon"
+    );
 
     // Room detection by NPC presence
     private static final Map<Integer, String> ROOM_NPCS = new HashMap<>();
@@ -73,28 +77,52 @@ public class CoxHandler implements KillTracker.KillListener
     @Subscribe
     public void onNpcSpawned(NpcSpawned event)
     {
-        if (!inRaid) return;
-
         String roomName = ROOM_NPCS.get(event.getNpc().getId());
-        if (roomName != null && !roomName.equals(currentRoom))
+        if (roomName != null)
         {
-            transitionToRoom(roomName);
+            if (!inRaid)
+            {
+                startRaid();
+            }
+            if (!roomName.equals(currentRoom))
+            {
+                transitionToRoom(roomName);
+            }
         }
     }
 
     @Override
     public void onKillRecorded(KillRecord record)
     {
-        if (!record.getBossName().equals("Chambers of Xeric") || !inRaid)
+        String bossName = record.getBossName();
+        if (bossName == null || !bossName.startsWith("Chambers of Xeric") || !inRaid)
         {
             return;
         }
 
         finalizeCurrentRoom();
+        boolean challengeMode = isChallengeMode() || bossName.contains("Challenge Mode");
+        int nowTick = client.getTickCount();
+
+        if (record.getDurationTicks() <= 0 && raidStartTick > 0)
+        {
+            int totalTicks = Math.max(0, nowTick - raidStartTick);
+            record.setDurationTicks(totalTicks);
+            record.setDurationSeconds(totalTicks * 0.6);
+            record.setDurationFromChat(false);
+        }
+        if (record.getDurationSeconds() <= 0 && record.getDurationTicks() > 0)
+        {
+            record.setDurationSeconds(record.getDurationTicks() * 0.6);
+        }
 
         int totalPoints = client.getVarbitValue(VARBIT_TOTAL_POINTS);
         int personalPoints = client.getVarbitValue(VARBIT_PERSONAL_POINTS);
-        int teamSize = estimateTeamSize(totalPoints, personalPoints);
+        int estimatedTeamSize = estimateTeamSize(totalPoints, personalPoints);
+        int teamSize = Math.max(record.getTeamSize(), estimatedTeamSize);
+        record.setTeamSize(teamSize);
+        record.setGroupSizeLabel(teamSize > 8 ? "mass" : String.valueOf(teamSize));
+        record.setActivityVariant(challengeMode ? "challenge_mode" : "normal");
 
         StringBuilder route = new StringBuilder();
         for (RaidRecord.RoomRecord room : rooms)
@@ -103,15 +131,53 @@ public class CoxHandler implements KillTracker.KillListener
             route.append(room.getRoomName().toLowerCase());
         }
 
+        Map<String, String> killMetadata = record.getMetadata() != null
+            ? new HashMap<>(record.getMetadata())
+            : new HashMap<>();
+        Set<String> roomsSeen = new HashSet<>();
+        int olmTicks = 0;
+        for (RaidRecord.RoomRecord room : rooms)
+        {
+            String roomName = room.getRoomName();
+            if (roomName != null)
+            {
+                roomsSeen.add(roomName.toLowerCase());
+            }
+            if (roomName != null && roomName.toLowerCase().contains("olm"))
+            {
+                olmTicks += room.getDurationTicks();
+            }
+        }
+
+        for (String roomName : ROOM_FLAG_NAMES)
+        {
+            String key = "cox_room_" + roomName.toLowerCase().replaceAll("[^a-z0-9]+", "_");
+            killMetadata.put(key, roomsSeen.contains(roomName.toLowerCase()) ? "1" : "0");
+        }
+        killMetadata.put("cox_total_ticks", String.valueOf(record.getDurationTicks()));
+        killMetadata.put("cox_olm_ticks", String.valueOf(olmTicks));
+        killMetadata.put("cox_olm_seconds", String.format("%.1f", olmTicks * 0.6));
+        killMetadata.put("cox_is_cm", challengeMode ? "1" : "0");
+        killMetadata.put("cox_group_size", record.getGroupSizeLabel());
+        if (record.getTeamSize() > 8)
+        {
+            killMetadata.put("cox_team_snapshot", "mass");
+        }
+        else if (record.getTeamMembers() != null)
+        {
+            killMetadata.put("cox_team_snapshot", String.join("|", record.getTeamMembers()));
+        }
+        record.setMetadata(killMetadata);
+
         try
         {
             RaidRecord raid = RaidRecord.builder()
                 .killRecordId(record.getId())
-                .raidType(isChallengeMode() ? "cox_cm" : "cox")
+                .raidType(challengeMode ? "cox_cm" : "cox")
                 .totalPoints(totalPoints)
                 .personalPoints(personalPoints)
                 .teamSize(teamSize)
-                .raidLevel(isChallengeMode() ? 1 : 0)
+                .raidLevel(challengeMode ? 1 : 0)
                 .rooms(new ArrayList<>(rooms))
                 .route(route.toString())
                 .purpleReceived(false) // TODO: detect from chat
@@ -120,6 +186,30 @@ public class CoxHandler implements KillTracker.KillListener
                 .build();
 
             dataStore.insertRaid(raid);
+            dataStore.upsertCoxRun(CoxRunRecord.builder()
+                .killRecordId(record.getId())
+                .challengeMode(challengeMode)
+                .totalPoints(totalPoints)
+                .personalPoints(personalPoints)
+                .teamSize(record.getTeamSize())
+                .groupSizeLabel(record.getGroupSizeLabel())
+                .totalTicks(record.getDurationTicks())
+                .totalSeconds(record.getDurationSeconds())
+                .olmTicks(olmTicks)
+                .olmSeconds(olmTicks * 0.6)
+                .route(route.toString())
+                .roomTekton(roomsSeen.contains("tekton") ? 1 : 0)
+                .roomMuttadile(roomsSeen.contains("muttadile") ? 1 : 0)
+                .roomVanguards(roomsSeen.contains("vanguards") ? 1 : 0)
+                .roomVasaNistirio(roomsSeen.contains("vasa nistirio") ? 1 : 0)
+                .roomVespula(roomsSeen.contains("vespula") ? 1 : 0)
+                .roomGuardians(roomsSeen.contains("guardians") ? 1 : 0)
+                .roomMystics(roomsSeen.contains("mystics") ? 1 : 0)
+                .roomShamans(roomsSeen.contains("shamans") ? 1 : 0)
+                .roomGreatOlm(roomsSeen.contains("great olm") ? 1 : 0)
+                .roomThieving(roomsSeen.contains("thieving") ? 1 : 0)
+                .roomIceDemon(roomsSeen.contains("ice demon") ? 1 : 0)
+                .build());
             log.info("CoX completion recorded: {} points, route={}, team={}",
                 totalPoints, route, teamSize);
         }

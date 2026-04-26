@@ -94,6 +94,11 @@ public class NexHandler implements KillTracker.KillListener
 
         int teamSize = Math.max(1, playersInInstance.size());
         record.setTeamSize(teamSize);
+        record.setGroupSizeLabel(teamSize > 8 ? "mass" : String.valueOf(teamSize));
+
+        List<String> members = new ArrayList<>(playersInInstance);
+        members.sort(String.CASE_INSENSITIVE_ORDER);
+        record.setTeamMembers(members);
 
         Map<String, String> metadata = record.getMetadata();
         if (metadata == null) metadata = new HashMap<>();
@@ -156,9 +161,7 @@ public class NexHandler implements KillTracker.KillListener
 
     private String classifyKillType(int teamSize)
     {
-        if (teamSize <= 5) return "small_team";
-        if (teamSize <= 15) return "mid_team";
-        return "mass";
+        return teamSize > 8 ? "mass" : "group";
     }
 
     private boolean isInNexRegion()

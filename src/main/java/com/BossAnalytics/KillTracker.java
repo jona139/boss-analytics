@@ -36,6 +36,7 @@ public class KillTracker
 
     // Start-of-fight snapshots
     private final Map<String, FightSnapshot> fightSnapshots = new HashMap<>();
+    private final Map<String, PlayerStateTracker.InstanceSnapshot> fightInstanceSnapshots = new HashMap<>();
 
     // Per-fight stat tracking
     private final Map<String, int[]> fightHpTracking = new HashMap<>();   // [hpLost, hpRecovered, lastKnownHp]
@@ -60,6 +61,7 @@ public class KillTracker
     private String lastKilledBoss = null;
     private int lastKilledBossNpcId = -1;
     private int lastKillTick = -1;
+    private boolean lastKilledBossHasKillTimeChat = true;
 
     // Kill event listeners
     private final List<KillListener> listeners = new ArrayList<>();
@@ -107,6 +109,7 @@ public class KillTracker
             lastKilledBoss = bossDef.get().getName();
             lastKilledBossNpcId = npcId;
             lastKillTick = client.getTickCount();
+            lastKilledBossHasKillTimeChat = bossDef.get().isHasKillTimeChat();
             log.info("Boss death detected: {} (npcId={})", lastKilledBoss, npcId);
         }
     }
@@ -120,6 +123,12 @@ public class KillTracker
         if (bossDef.isPresent())
         {
             String bossName = bossDef.get().getName();
+            if ("Kraken".equals(bossName))
+            {
+                // Kraken can be present while dormant; start timing on first player hit.
+                return;
+            }
+
             int ratio = npc.getHealthRatio();
             int scale = npc.getHealthScale();
             // ratio == -1 means unknown (just spawned, not yet in combat) which is full HP
@@ -127,28 +136,7 @@ public class KillTracker
             boolean fullHp = ratio == -1 || ratio == scale;
             if (fullHp && !fightStartTicks.containsKey(bossName))
             {
-                fightStartTicks.put(bossName, client.getTickCount());
-                log.info("Fight timer started (boss spawned at full HP): {} at tick {} (npcId={})",
-                    bossName, client.getTickCount(), npcId);
-
-                // Capture start-of-fight state
-                FightSnapshot snapshot = FightSnapshot.builder()
-                    .equippedItemIds(playerState.getEquippedItemIds())
-                    .equippedItemNames(playerState.getEquippedItemNames())
-                    .inventoryItemIds(playerState.getInventoryItemIds())
-                    .gearValue(playerState.calculateEquipmentValue())
-                    .inventoryValue(playerState.calculateInventoryValue())
-                    .build();
-                fightSnapshots.put(bossName, snapshot);
-
-                // Initialize stat tracking
-                int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
-                int currentPrayer = client.getBoostedSkillLevel(Skill.PRAYER);
-                fightHpTracking.put(bossName, new int[]{0, 0, currentHp});
-                fightPrayerTracking.put(bossName, new int[]{0, 0, currentPrayer});
-                fightDeaths.put(bossName, 0);
-                fightDamageDealt.put(bossName, 0);
-                activeFightBoss = bossName;
+                startFightTracking(bossName, "boss spawned at full HP", npcId);
             }
         }
     }
@@ -175,6 +163,27 @@ public class KillTracker
         {
             kcBossName = kcMatcher.group(1);
             killCount = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
+        }
+        else
+        {
+            Matcher raidKcMatcher = BossRegistry.RAID_KC.matcher(msg);
+            if (raidKcMatcher.find())
+            {
+                kcBossName = raidKcMatcher.group(1);
+                killCount = Integer.parseInt(raidKcMatcher.group(2).replace(",", ""));
+            }
+            else
+            {
+                Matcher yamaContractsMatcher = BossRegistry.YAMA_CONTRACT.matcher(msg);
+                if (yamaContractsMatcher.find()
+                    && ("Yama".equals(lastKilledBoss)
+                    || "Yama".equals(activeFightBoss)
+                    || fightStartTicks.containsKey("Yama")))
+                {
+                    kcBossName = "Yama";
+                    killCount = Integer.parseInt(yamaContractsMatcher.group(1).replace(",", ""));
+                }
+            }
         }
 
         boolean isPb = BossRegistry.PERSONAL_BEST.matcher(msg).find();
@@ -267,19 +276,56 @@ public class KillTracker
     @Subscribe
     public void onHitsplatApplied(HitsplatApplied event)
     {
-        if (activeFightBoss == null) return;
         if (!(event.getActor() instanceof NPC)) return;
 
         NPC npc = (NPC) event.getActor();
         Optional<BossRegistry.BossDefinition> bossDef = bossRegistry.getByNpcId(npc.getId());
-        if (bossDef.isPresent() && bossDef.get().getName().equals(activeFightBoss))
+        if (bossDef.isPresent())
         {
             Hitsplat hitsplat = event.getHitsplat();
-            if (hitsplat.isMine())
+
+            String bossName = bossDef.get().getName();
+            if ("Kraken".equals(bossName) && hitsplat.isMine() && !fightStartTicks.containsKey("Kraken"))
+            {
+                startFightTracking("Kraken", "first player hitsplat", npc.getId());
+            }
+
+            if (activeFightBoss != null && bossName.equals(activeFightBoss) && hitsplat.isMine())
             {
                 fightDamageDealt.merge(activeFightBoss, hitsplat.getAmount(), Integer::sum);
             }
         }
+    }
+
+    private void startFightTracking(String bossName, String reason, int npcId)
+    {
+        if (fightStartTicks.containsKey(bossName))
+        {
+            return;
+        }
+
+        fightStartTicks.put(bossName, client.getTickCount());
+        log.info("Fight timer started ({}): {} at tick {} (npcId={})",
+            reason, bossName, client.getTickCount(), npcId);
+
+        FightSnapshot snapshot = FightSnapshot.builder()
+            .equippedItemIds(playerState.getEquippedItemIds())
+            .equippedItemNames(playerState.getEquippedItemNames())
+            .inventoryItemIds(playerState.getInventoryItemIds())
+            .gearValue(playerState.calculateEquipmentValue())
+            .inventoryValue(playerState.calculateInventoryValue())
+            .build();
+        fightSnapshots.put(bossName, snapshot);
+
+        fightInstanceSnapshots.put(bossName, playerState.captureInstanceSnapshot());
+
+        int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+        int currentPrayer = client.getBoostedSkillLevel(Skill.PRAYER);
+        fightHpTracking.put(bossName, new int[]{0, 0, currentHp});
+        fightPrayerTracking.put(bossName, new int[]{0, 0, currentPrayer});
+        fightDeaths.put(bossName, 0);
+        fightDamageDealt.put(bossName, 0);
+        activeFightBoss = bossName;
     }
 
     private double parseDuration(String msg)
@@ -316,12 +362,15 @@ public class KillTracker
     {
         fightStartTicks.remove(bossName);
         fightSnapshots.remove(bossName);
+        fightInstanceSnapshots.remove(bossName);
         fightHpTracking.remove(bossName);
         fightPrayerTracking.remove(bossName);
         fightDeaths.remove(bossName);
         fightDamageDealt.remove(bossName);
         lastKilledBoss = null;
         lastKilledBossNpcId = -1;
+        lastKillTick = -1;
+        lastKilledBossHasKillTimeChat = true;
         if (bossName.equals(activeFightBoss))
         {
             activeFightBoss = null;
@@ -337,8 +386,20 @@ public class KillTracker
             if (tickDuration < 0) tickDuration = (int) Math.round(durationSeconds / 0.6);
 
             FightSnapshot snapshot = fightSnapshots.get(bossName);
+            PlayerStateTracker.InstanceSnapshot instanceSnapshot = fightInstanceSnapshots.get(bossName);
+            if (instanceSnapshot == null)
+            {
+                // Fallback for content tracked primarily from chat/KC messages (e.g., raids).
+                instanceSnapshot = playerState.captureInstanceSnapshot();
+            }
             int[] hpTracking = fightHpTracking.get(bossName);
             int[] prayerTracking = fightPrayerTracking.get(bossName);
+            int teamSize = instanceSnapshot != null ? instanceSnapshot.getTeamSize() : 1;
+            String groupSizeLabel = instanceSnapshot != null ? instanceSnapshot.getGroupSizeLabel() : "1";
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("team_size", String.valueOf(teamSize));
+            metadata.put("group_size", groupSizeLabel);
+            metadata.put("kill_type", teamSize > 8 ? "mass" : (teamSize > 1 ? "group" : "solo"));
 
             KillRecord record = KillRecord.builder()
                 .bossName(bossName)
@@ -358,9 +419,22 @@ public class KillTracker
                 .personalBestTime(0)
                 .personalBest(isPb)
                 .world(playerState.getWorld())
+                .worldTypes(playerState.getWorldTypesString())
+                .gameMode(playerState.getGameMode())
+                .leaguesWorld(playerState.isLeaguesWorld())
                 .task(false) // TODO: detect slayer task
-                .teamSize(1)
-                .metadata(new HashMap<>())
+                .teamSize(teamSize)
+                .groupSizeLabel(groupSizeLabel)
+                .teamMembers(instanceSnapshot != null ? instanceSnapshot.getTeamMembers() : Collections.emptyList())
+                .otherPlayers(instanceSnapshot != null ? instanceSnapshot.getOtherPlayers() : Collections.emptyList())
+                .wave(0)
+                .waveName(null)
+                .segmentDurationTicks(0)
+                .totalRunTicks(0)
+                .deathRecord(false)
+                .deathWave(0)
+                .activityVariant(null)
+                .metadata(metadata)
                 // Start-of-fight snapshot
                 .startEquippedItemIds(snapshot != null ? snapshot.getEquippedItemIds() : null)
                 .startEquippedItemNames(snapshot != null ? snapshot.getEquippedItemNames() : null)
@@ -385,6 +459,8 @@ public class KillTracker
                 .totalLevel(playerState.getTotalLevel())
                 .playtimeMinutes(playerState.getPlaytimeMinutes())
                 .accountType(playerState.getAccountType())
+                .effectiveAccountType(playerState.getEffectiveAccountType())
+                .accountTypeLabel(playerState.getAccountTypeLabel())
                 // Fight metrics
                 .personalDeaths(fightDeaths.getOrDefault(bossName, 0))
                 .totalDamageDealt(fightDamageDealt.getOrDefault(bossName, 0))
@@ -400,6 +476,9 @@ public class KillTracker
             {
                 listener.onKillRecorded(record);
             }
+
+            // Persist any listener-side enrichments (team/wave/raid metadata updates).
+            dataStore.updateKill(record);
         }
         catch (Exception e)
         {
@@ -414,12 +493,37 @@ public class KillTracker
     {
         int currentTick = client.getTickCount();
         // Clean up fights older than 30 minutes (3000 ticks) — should never hit this
-        fightStartTicks.entrySet().removeIf(entry ->
-            currentTick - entry.getValue() > 3000);
+        List<String> staleBosses = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : fightStartTicks.entrySet())
+        {
+            if (currentTick - entry.getValue() > 3000)
+            {
+                staleBosses.add(entry.getKey());
+            }
+        }
+        for (String staleBoss : staleBosses)
+        {
+            clearFightState(staleBoss);
+        }
 
+        // If a boss has no reliable kill chat signal, finalize from despawn context after a short grace window.
+        if (lastKilledBoss != null && !lastKilledBossHasKillTimeChat && currentTick - lastKillTick > 10)
+        {
+            int tickDuration = calculateTickDuration(lastKilledBoss);
+            double tickBasedSeconds = tickDuration > 0 ? tickDuration * 0.6 : -1;
+            recordKill(lastKilledBoss, lastKilledBossNpcId, tickBasedSeconds, false, -1, false);
+            clearFightState(lastKilledBoss);
+            return;
+        }
+
+        // Only clear stale death context, NOT the active fight state
+        // (a new fight may already be in progress via onNpcSpawned)
         if (lastKilledBoss != null && currentTick - lastKillTick > 100)
         {
-            clearFightState(lastKilledBoss);
+            lastKilledBoss = null;
+            lastKilledBossNpcId = -1;
+            lastKillTick = -1;
+            lastKilledBossHasKillTimeChat = true;
         }
     }
 }
